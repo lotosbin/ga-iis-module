@@ -99,8 +99,6 @@ public class GAModule : IHttpModule {
             new Uri("http://www.google-analytics.com/collect"), 
             collection
         );
-       
-        //context.Response.Write("COUCOU");
 
     }
 
