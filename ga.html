@@ -1,0 +1,43 @@
+<!doctype html>
+<html>
+<head>
+	<title>Analytics Test</title>
+	<style type="text/css">
+		label { display: inline-block; width: 100px; margin-top: 15px;}
+		input { border: 0; border-bottom: 1px solid #ccc; }
+		input[type="button"] { margin-top: 50px; padding: 10px; border: 1px solid #999; }
+	</style>
+	<script type="text/javascript" src="http://code.jquery.com/jquery-2.0.3.min.js"></script>
+	<script type="text/javascript">
+		$(function() {
+			$('#Send').click(function() {
+				$.post(
+					'http://www.google-analytics.com/collect',
+					{
+						v: $('#v').val(),
+						tid: $('#tid').val(),
+						cid: $('#cid').val(),
+						t: $('#t').val(),
+						ec: $('#ec').val(),
+						ea: $('#ea').val(),
+						el: $('#el').val(),
+						ev: $('#ev').val()
+
+					}
+				).success(function(data) { console.log(data); } );
+			})
+		})
+	</script>
+</head>
+<body>
+	<label for="v">Version:</label><input type="text" name="v" id="v" value="1"/><br/>
+	<label for="tid">Tracking ID:</label><input type="text" name="tid" id="tid" value="UA-24740834-2"/><br/>
+	<label for="cid">Client ID:</label><input type="text" name="cid" id="cid" value="555"/><br/>
+	<label for="t">Hit Type:</label><input type="text" name="t" id="t" value="event"/><br/>
+	<label for="ec">Event Category:</label><input type="text" name="ec" id="ec" value="PDF"/><br/>
+	<label for="ea">Event Action:</label><input type="text" name="ea" id="ea" value="DOWNLOAD"/><br/>
+	<label for="el">Event Label:</label><input type="text" name="el" id="el" value="filename.pdf"/><br/>
+	<label for="ev">Event Value:</label><input type="text" name="ev" id="ev" value="1"/><br/>
+	<input type="button" id="Send" name="Send" value="Send" />
+</body>
+</html>
