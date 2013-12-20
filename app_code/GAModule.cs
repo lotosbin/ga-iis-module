@@ -5,13 +5,14 @@ using System.Collections.Specialized;
 using System.Collections.Generic;
 using System.Configuration;
 
-public class HelloWorldModule : IHttpModule {
+public class GAModule : IHttpModule {
 
     private Dictionary<string, string> extensions = new Dictionary<String, String>();
     private String GA_TRACKING_ID;
     private String OECD_PROXY;
 
-    public HelloWorldModule() {
+    public GAModule()
+    {
 
         String categoriesSetting = ConfigurationManager.AppSettings["GA_CATEGORIES"];
         String[] categories = categoriesSetting.Split(',');
