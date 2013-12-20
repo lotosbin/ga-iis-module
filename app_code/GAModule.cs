@@ -100,7 +100,7 @@ public class GAModule : IHttpModule {
             collection
         );
        
-        context.Response.Write("COUCOU");
+        //context.Response.Write("COUCOU");
 
     }
 
