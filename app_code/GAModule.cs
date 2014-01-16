@@ -5,8 +5,9 @@ using System.Collections;
 using System.Collections.Specialized;
 using System.Collections.Generic;
 using System.Configuration;
-using System.Diagnostics;
+//using System.Diagnostics;
 using System.Threading;
+using System.IO;
 
 public class GAModule : IHttpModule {
 
@@ -17,15 +18,16 @@ public class GAModule : IHttpModule {
     private Boolean SEND_TO_GA;
     private Boolean LOG_TO_FILE;
     private String LOG_FILE_DIR;
+    private ArrayList filtredIps = new ArrayList();
+    private ArrayList filtredBots = new ArrayList();
+    private int THREAD_NUMBER = 1;
 
-    private GoogleAnalyticThread gaThread;
-    private Queue gaRequestQueue;
-    private Thread oThread;
+    private GaQueue gaRequestQueue;
+
+    private Logger logger = null;
 
     public GAModule()
     {
-        Debug.WriteLine("GAModule Constructor... ");
-
         String categoriesSetting = ConfigurationManager.AppSettings["GA_CATEGORIES"];
         String[] categories = categoriesSetting.Split(',');
 
@@ -60,6 +62,32 @@ public class GAModule : IHttpModule {
             if (Boolean.TryParse("t", out flag))
                 LOG_TO_FILE = flag;
         }
+
+        String filtredIpsSetting = ConfigurationManager.AppSettings["GA_FILTRED_IPS"];
+        if (!String.IsNullOrEmpty(filtredIpsSetting))
+        {
+            String[] ips = filtredIpsSetting.Split(',');
+            foreach (String ipsPattern in ips)
+            {
+                this.filtredIps.Add(ipsPattern);
+            }
+        }
+
+        value = ConfigurationManager.AppSettings["GA_THREAD_NUMBER"];
+        if (value != null)
+        {
+            THREAD_NUMBER = Convert.ToInt32(value);
+        }
+
+        String botsSetting = ConfigurationManager.AppSettings["GA_FILTER_BOTS"];
+        String[] bots = botsSetting.Split(',');
+        foreach (String bot in bots)
+        {
+            this.filtredBots.Add(bot.Trim().ToUpper());
+        }
+
+        logger = Logger.Instance(LOG_FILE_DIR, System.DateTime.Now);
+        logger.writeToFile("Finishing creating GAModule :: " + Thread.CurrentThread.ManagedThreadId);
     }
 
     public String ModuleName
@@ -71,83 +99,207 @@ public class GAModule : IHttpModule {
     // events by adding your handlers.
     public void Init(HttpApplication application)
     {
-        Debug.WriteLine("Init ");
-        application.BeginRequest +=
-            (new EventHandler(this.Application_BeginRequest));
+        //Debug.WriteLine("Init ");
+        //application.BeginRequest += (new EventHandler(this.Application_BeginRequest));
+        application.EndRequest -=
+            (new EventHandler(this.Application_EndRequest));
         application.EndRequest +=
             (new EventHandler(this.Application_EndRequest));
 
+        application.Error +=
+            (new EventHandler(this.Application_Error));
+
         HttpApplicationState theApp = application.Application;
 
-        if (theApp.Get("gaRequestQueue") != null)
-            this.gaRequestQueue = (Queue)theApp.Get("gaRequestQueue");
+        //if (theApp.Get("gaRequestQueue") != null)
+        //    this.gaRequestQueue = (Queue)theApp.Get("gaRequestQueue");
 
-        if (theApp.Get("gaThread") != null)
-            this.gaThread = (GoogleAnalyticThread)theApp.Get("gaThread");
-
-        if (this.gaRequestQueue == null)
+        /*if (this.gaRequestQueue == null)
         {
             //this.gaRequestQueue = new Queue<GARequestObject>();
             this.gaRequestQueue = new Queue();
             theApp.Add("gaRequestQueue", this.gaRequestQueue);
-        }
+        }*/
+        this.gaRequestQueue = GaQueue.Instance();
 
-        if (this.gaThread == null) {
-            String theTime = System.DateTime.Now.ToUniversalTime().Hour  + "_" + System.DateTime.Now.ToUniversalTime().Minute + "_" + System.DateTime.Now.ToUniversalTime().Second;
-            this.gaThread = new GoogleAnalyticThread(theTime, this.gaRequestQueue, OECD_PROXY, SEND_TO_GA, LOG_TO_FILE, LOG_FILE_DIR);
-            this.oThread = new Thread(new ThreadStart(this.gaThread.ThreadRun));
-            this.oThread.Start();
-            theApp.Add("gaThread", this.gaThread);
-            Debug.WriteLine("starting thread(" + theTime + ") ...");
 
+        Object lGaThread = theApp.Get("gaThread");
+        //logger.writeToFile("lGaThread :" + lGaThread);
+        if (lGaThread == null)
+        {
+            logger.writeToFile("lGaThread is null");
+            //THREAD_NUMBER
+            for (int i = 1; i <= this.THREAD_NUMBER; i++)
+            {
+                String theTime = System.DateTime.Now.ToUniversalTime().Hour + "_" + System.DateTime.Now.ToUniversalTime().Minute + "_" + System.DateTime.Now.ToUniversalTime().Second;
+                //GoogleAnalyticThread gaThread = new GoogleAnalyticThread(theTime + "_" + i, this.gaRequestQueue, OECD_PROXY, SEND_TO_GA, LOG_TO_FILE, LOG_FILE_DIR);
+                GoogleAnalyticThread gaThread = new GoogleAnalyticThread(theTime + "_" + i, OECD_PROXY, SEND_TO_GA, LOG_TO_FILE, LOG_FILE_DIR);
+                Thread oThread = new Thread(new ThreadStart(gaThread.ThreadRun));
+                oThread.Start();
+                //Debug.WriteLine("starting thread(" + theTime + ") ...");
+            }
+            theApp.Add("gaThread", this.THREAD_NUMBER);
         }
+        else if (lGaThread != null)
+        {
+            int threadNumber = this.THREAD_NUMBER;
+            threadNumber = Convert.ToInt32(lGaThread);
+            if (threadNumber > this.THREAD_NUMBER) {
+                int count = this.THREAD_NUMBER - threadNumber;
+                logger.writeToFile("count : " + count);
+                for (int i = 1; i <= count; i++)
+                {
+                    String theTime = System.DateTime.Now.ToUniversalTime().Hour + "_" + System.DateTime.Now.ToUniversalTime().Minute + "_" + System.DateTime.Now.ToUniversalTime().Second;
+                    int lCount = i + this.THREAD_NUMBER;
+                    logger.writeToFile("lCount : " + lCount);
+                    //GoogleAnalyticThread gaThread = new GoogleAnalyticThread(theTime + "_" + lCount, this.gaRequestQueue, OECD_PROXY, SEND_TO_GA, LOG_TO_FILE, LOG_FILE_DIR);
+                    GoogleAnalyticThread gaThread = new GoogleAnalyticThread(theTime + "_" + lCount, OECD_PROXY, SEND_TO_GA, LOG_TO_FILE, LOG_FILE_DIR);
+                    Thread oThread = new Thread(new ThreadStart(gaThread.ThreadRun));
+                    oThread.Start();
+                    //Debug.WriteLine("starting thread(" + theTime + ") ...");
+                }                
+                this.THREAD_NUMBER = threadNumber;
+            }
+            theApp.Add("gaThread", this.THREAD_NUMBER);
+        }
+        logger.writeToFile("Finishing Init : " + Thread.CurrentThread.ManagedThreadId);
     }
 
-    private void Application_BeginRequest(Object source, EventArgs e)
+/*    private void Application_BeginRequest(Object source, EventArgs e)
     {
         // Create HttpApplication and HttpContext objects to access
         // request and response properties.
-        HttpApplication application = (HttpApplication)source;
+        /*HttpApplication application = (HttpApplication)source;
         
         HttpContext context = application.Context;
         string filePath = context.Request.FilePath;
-        string fileExtension = VirtualPathUtility.GetExtension(filePath);
-    }
+        string fileExtension = VirtualPathUtility.GetExtension(filePath);* /
+    }*/
+
 
     private void Application_EndRequest(Object source, EventArgs e) {
-
-        HttpApplication application = (HttpApplication)source;
-        HttpContext context = application.Context;
-        string filePath = context.Request.FilePath;
-        string fileExtension =
-            VirtualPathUtility.GetExtension(filePath);
-        String ipAddress = context.Request.UserHostAddress;
-        String userAgent = context.Request.UserAgent;
-        DateTime requestTime = context.Timestamp;
-        if (!extensions.ContainsKey(fileExtension.ToLower()))
+        try
         {
-            return;
-        }
+            HttpApplication application = (HttpApplication)source;
+            HttpContext context = application.Context;
 
-        if (context.Response.StatusCode != 200)
-        {
-            return;
-        }
-
-        ServicePointManager.Expect100Continue = false;
-
-        GARequestObject gaRequestObject = new GARequestObject("1", GA_TRACKING_ID, "555", "event", extensions[fileExtension.ToLower()], "DOWNLOAD", filePath, "1", ipAddress, userAgent, requestTime);
-
-        if (gaRequestObject != null) {
-            Debug.WriteLine("filePath : " + filePath);   
-
-            //Queue.Synchronized(this.gaRequestQueue);
-            //Queue mySyncdQ = Queue.Synchronized(this.gaRequestQueue);
-
-            lock (this.gaRequestQueue.SyncRoot)
+            if (context.Response.StatusCode != 200)
             {
+                return;
+            }
+
+            String range = context.Request.Headers.Get("Range");
+            if (range != null && range.Trim().Length > 0)
+            {
+                return;
+            }
+
+            string filePath = context.Request.FilePath;
+            if (filePath == null || filePath.StartsWith("/redirect/"))
+            {
+                return;
+            }
+
+            string fileExtension =
+                VirtualPathUtility.GetExtension(filePath);
+            String ipAddress = context.Request.UserHostAddress;
+            String userAgent = context.Request.UserAgent;
+            DateTime requestTime = context.Timestamp;
+
+            Boolean filter = false;
+            foreach (String pattern in filtredIps)
+            {
+                if (ipAddress.StartsWith(pattern))
+                {
+                    filter = true;
+                    break;
+                }
+            }
+            if (filter)
+            {
+                return;
+            }
+
+            if (!extensions.ContainsKey(fileExtension.ToLower()))
+            {
+                return;
+            }
+
+            if (userAgent != null)
+            {
+                String lUserAgent = userAgent.ToUpper();
+                filter = false;
+                foreach (String bot in filtredBots)
+                {
+                    if (lUserAgent.Contains(bot))
+                    {
+                        filter = true;
+                        break;
+                    }
+                }
+                if (filter)
+                {
+                    return;
+                }
+                //if (this.filtredBots.co lUserAgent)
+                /*if (lUserAgent.Contains("GOOGLEBOT") || lUserAgent.Contains("YANDEXBOT") || lUserAgent.Contains("BINGBOT")
+                    || lUserAgent.Contains("BAIDUSPIDER") || lUserAgent.Contains("TWITTERBOT") || lUserAgent.Contains("YOUDAOBOT")
+                        || lUserAgent.Contains("YOLINKBOT") || lUserAgent.Contains("PAPERLIBOT") || lUserAgent.Contains("VOILABOT")
+                            || lUserAgent.Contains("SHOWYOUBOT") || lUserAgent.Contains("EXABOT") || lUserAgent.Contains("MAIL.RU_BOT"))
+                {
+                    return;
+                }*/
+            }
+
+            Uri uri = context.Request.UrlReferrer;
+            String urlReferrer = "";
+            if (uri != null)
+            {
+                urlReferrer = uri.ToString();
+            }
+
+            String[] languages = context.Request.UserLanguages;
+            String userLanguage = "";
+            if (languages != null && languages.Length > 0)
+            {
+                userLanguage = languages[0];
+            }
+
+            ServicePointManager.Expect100Continue = false;
+
+            GARequestObject gaRequestObject = new GARequestObject("1", GA_TRACKING_ID, "555", "event", extensions[fileExtension.ToLower()], "DOWNLOAD", filePath, "1", ipAddress, userAgent, requestTime, context.Response.StatusCode, range, urlReferrer, 0);
+
+
+            if (gaRequestObject != null)
+            {
+                //Debug.WriteLine("filePath : " + filePath);   
+
+                //Queue.Synchronized(this.gaRequestQueue);
+                //Queue mySyncdQ = Queue.Synchronized(this.gaRequestQueue);
+
+                /*lock (this.gaRequestQueue.SyncRoot)
+                {
+                    this.gaRequestQueue.Enqueue(gaRequestObject);
+                }*/
                 this.gaRequestQueue.Enqueue(gaRequestObject);
             }
+        }
+        catch (Exception ee) {
+            logger.writeToFile(ee.Message);
+        }
+    }
+
+
+    private void Application_Error(Object source, EventArgs e)
+    {
+        try
+        {
+            logger.writeToFile(HttpContext.Current.Server.GetLastError().Message);
+        }
+        catch (Exception ee) { }
+        finally
+        { 
+            //todo:retirer l'evènement 
         }
     }
 
@@ -155,102 +307,3 @@ public class GAModule : IHttpModule {
 }
 
 
-public class GoogleAnalyticThread
-{
-
-    public String name;
-    Queue threadGaRequestQueue;
-    WebClient client;
-    bool sendToGa = true;
-    bool logToFile = true;
-    string logFile = "C:\\Temp\\";
-    System.IO.StreamWriter file = null;
-    private DateTime date;
-
-    public GoogleAnalyticThread(String name, Queue theQueue, String proxy,
-        bool sendToGa, bool logToFile, string logFile)
-    {
-        this.name = name;
-        this.threadGaRequestQueue = theQueue;
-        this.client = new WebClient();
-        WebProxy wp = new WebProxy(proxy);
-        client.Proxy = wp;
-        client.Headers.Add("User-Agent", "Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/31.0.1650.63 Safari/537.36");
-
-        this.sendToGa = sendToGa;
-        this.logToFile = logToFile;
-        this.logFile = logFile;
-
-        date = System.DateTime.Now;
-
-        if (logToFile) {
-            this.file = new System.IO.StreamWriter(logFile + "gaLogFile" + date.Year + date.Month + date.Day + ".log");
-        }
-
-    }
-
-    public void ThreadRun()
-    {
-
-        while (true)
-        {
-            if (threadGaRequestQueue.Count > 2)
-            {
-
-                int count = threadGaRequestQueue.Count;
-                lock (this.threadGaRequestQueue.SyncRoot)
-                {
-                    int i = 1;
-                    while (i <= count) {
-                        GARequestObject requestObject = (GARequestObject)threadGaRequestQueue.Dequeue();
-                        if (sendToGa)
-                        {
-                            NameValueCollection collection = new NameValueCollection();
-                            collection.Add("v", requestObject.v);
-                            collection.Add("tid", requestObject.tid);
-                            collection.Add("cid", requestObject.cid);
-                            collection.Add("t", requestObject.t);
-                            collection.Add("ec", requestObject.ec);
-                            collection.Add("ea", requestObject.ea);
-                            collection.Add("el", requestObject.el);
-                            collection.Add("ev", requestObject.ev);
-
-                            this.client.UploadValues(
-                                new Uri("http://www.google-analytics.com/collect"), 
-                                collection
-                            );
-                        }
-
-                        if (logToFile) {
-                            writeToFile(requestObject);
-                        }
-
-                        Debug.WriteLine("threadGaRequestQueue(" + this.name + ") sending object to GA : " + requestObject.el);
-                        i++;
-                    }
-                }
-            }
-
-            Debug.WriteLine("threadGaRequestQueue(" + this.name + ") sleeping : " + threadGaRequestQueue.Count);
-
-            Thread.Sleep(5000);
-        }
-    }
-
-    private void writeToFile(GARequestObject requestObject) {
-        DateTime currDate = System.DateTime.Now;
-        if (currDate.Day != date.Day) {
-            date = System.DateTime.Now;
-            this.file.Flush();
-            this.file.Close();
-            this.file = new System.IO.StreamWriter(logFile + "gaLogFile" + date.Year + date.Month + date.Day + ".log");
-        }
-
-        String theTimeStamp = "";
-        if (requestObject.requestTime != null)
-            theTimeStamp = requestObject.requestTime.ToShortDateString() + " " + requestObject.requestTime.ToLongTimeString() + "\t";
-
-        this.file.WriteLine(theTimeStamp + requestObject.ipAddress + "\t" + requestObject.el + "\t" + requestObject.userAgent);
-        this.file.Flush();
-    }
-}

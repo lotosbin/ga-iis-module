@@ -1,8 +1,9 @@
 ﻿using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Collections.Specialized;
 using System.Configuration;
-using System.Diagnostics;
+//using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Net;
@@ -22,13 +23,14 @@ public class AsyncGAModule  : IHttpModule
     private Boolean SEND_TO_GA;
     private Boolean LOG_TO_FILE;
     private String LOG_FILE_DIR;
+    private ArrayList filtredIps = new ArrayList();
 
     TextWriter file = null;
     private DateTime date;
 
 	public AsyncGAModule()
 	{
-        Debug.WriteLine("AsyncGAModule Constructor... ");
+        //Debug.WriteLine("AsyncGAModule Constructor... ");
 
         String categoriesSetting = ConfigurationManager.AppSettings["GA_CATEGORIES"];
         String[] categories = categoriesSetting.Split(',');
@@ -67,6 +69,17 @@ public class AsyncGAModule  : IHttpModule
             if (Boolean.TryParse("t", out flag))
                 LOG_TO_FILE = flag;
         }
+
+        String filtredIpsSetting = ConfigurationManager.AppSettings["GA_FILTRED_IPS"];
+        if (!String.IsNullOrEmpty(filtredIpsSetting))
+        {
+            String[] ips = filtredIpsSetting.Split(',');
+            foreach (String ipsPattern in ips)
+            {
+                filtredIps.Add(ipsPattern);
+            }
+        }
+
     }
 
     public String ModuleName
@@ -79,7 +92,7 @@ public class AsyncGAModule  : IHttpModule
     // events by adding your handlers.
     public void Init(HttpApplication application)
     {
-        Debug.WriteLine("AsyncGAModule Init ");
+        //Debug.WriteLine("AsyncGAModule Init ");
         //application.BeginRequest += (new EventHandler(this.Application_BeginRequest));
         application.AddOnEndRequestAsync(new BeginEventHandler(Application_EndRequest), new EndEventHandler(OnEndAsync));
 
@@ -104,6 +117,12 @@ public class AsyncGAModule  : IHttpModule
 
         HttpApplication application = (HttpApplication)source;
         HttpContext context = application.Context;
+
+        if (context.Response.StatusCode != 200)
+        {
+            return new GaIAsyncResult(false);
+        }
+        
         string filePath = context.Request.FilePath;
         string fileExtension =
             VirtualPathUtility.GetExtension(filePath);
@@ -111,23 +130,44 @@ public class AsyncGAModule  : IHttpModule
         String userAgent = context.Request.UserAgent;
         DateTime requestTime = context.Timestamp;
 
-        if (!extensions.ContainsKey(fileExtension.ToLower()))
+        Boolean filter = false;
+        foreach (String pattern in filtredIps)
         {
-            return new gaIAsyncResult(false);
+            if (ipAddress.StartsWith(pattern))
+                filter = true;
+        }
+        if (filter)
+        {
+            return new GaIAsyncResult(false);
         }
 
-        if (context.Response.StatusCode != 200)
+        if (!extensions.ContainsKey(fileExtension.ToLower()))
         {
-            return new gaIAsyncResult(false);
+            return new GaIAsyncResult(false);
         }
+
+        Uri uri = context.Request.UrlReferrer;
+        String urlReferrer = "";
+        if (uri != null)
+        {
+            urlReferrer = uri.ToString();
+        }
+
+        String[] languages = context.Request.UserLanguages;
+        String userLanguage = "";
+        if (languages != null && languages.Length > 0)
+        {
+            userLanguage = languages[0];
+        }
+
 
         ServicePointManager.Expect100Continue = false;
 
-        GARequestObject requestObject = new GARequestObject("1", GA_TRACKING_ID, "555", "event", extensions[fileExtension.ToLower()], "DOWNLOAD", filePath, "1", ipAddress, userAgent, requestTime);
+        GARequestObject requestObject = new GARequestObject("1", GA_TRACKING_ID, "555", "event", extensions[fileExtension.ToLower()], "DOWNLOAD", filePath, "1", ipAddress, userAgent, requestTime, context.Response.StatusCode, context.Response.Status, urlReferrer, 0);
 
         if (requestObject != null)
         {
-            Debug.WriteLine("filePath : " + filePath);
+            //Debug.WriteLine("filePath : " + filePath);
 
             WebClient client = new WebClient();
             WebProxy wp = new WebProxy(OECD_PROXY);
@@ -145,11 +185,19 @@ public class AsyncGAModule  : IHttpModule
                 collection.Add("ea", requestObject.ea);
                 collection.Add("el", requestObject.el);
                 collection.Add("ev", requestObject.ev);
+                if (requestObject.referrer != null && (requestObject.referrer.Trim().Length > 0))
+                    collection.Add("dr", requestObject.referrer);
 
-                client.UploadValuesAsync(
-                    new Uri("http://www.google-analytics.com/collect"),
-                    collection
-                );
+                try
+                {
+                    client.UploadValuesAsync(
+                        new Uri("http://www.google-analytics.com/collect"),
+                        collection
+                    );
+                }
+                catch (System.Net.WebException webE) {
+                    //Debug.WriteLine(webE.Message);
+                }
             }
 
             if (LOG_TO_FILE)
@@ -157,10 +205,10 @@ public class AsyncGAModule  : IHttpModule
                 writeToFile(requestObject);
             }
 
-            Debug.WriteLine("Application_EndRequest  sending object to GA : " + requestObject.el);
+            //Debug.WriteLine("Application_EndRequest  sending object to GA : " + requestObject.el);
         }
 
-        return new gaIAsyncResult(true);
+        return new GaIAsyncResult(true);
     }
 
     public void OnEndAsync(IAsyncResult result)
@@ -169,11 +217,22 @@ public class AsyncGAModule  : IHttpModule
     }
 
     public void Dispose() {
-        Debug.WriteLine("****** Application_End Dispose called : ");
+        //Debug.WriteLine("****** Application_End Dispose called 222 : ");
         if (this.file != null) {
-            this.file.WriteLine("****** Application_End Dispose called : ");
+            this.file.WriteLine("****** Application_End Dispose called 111 : ");
+            
+            /*this.file.WriteLine("****** Application_End Dispose called application : " + System.Web.HttpContext.Current.ApplicationInstance);
+            HttpApplication application = System.Web.HttpContext.Current.ApplicationInstance;            
+            if (application != null)
+            {
+                HttpApplicationState theApp = application.Application;
+                this.file.WriteLine("****** Application_End Dispose called theApp : " + theApp);
+                this.file.WriteLine("****** Application_End Dispose called theApp.get : " + theApp.Get("gaLogFile"));
+                theApp.Remove("gaLogFile");
+            }*/
             this.file.Flush();
-            this.file.Close();
+            //this.file.Close();
+
         }
     }
 
@@ -196,35 +255,4 @@ public class AsyncGAModule  : IHttpModule
         this.file.Flush();
     }
 
-}
-
-
-public class gaIAsyncResult : IAsyncResult
-{
-    bool _result;
-
-    public gaIAsyncResult(bool result)
-    {
-        _result = result;
-    }
-
-    public bool IsCompleted
-    {
-        get { return true; }
-    }
-
-    public WaitHandle AsyncWaitHandle
-    {
-        get { throw new NotImplementedException(); }
-    }
-
-    public object AsyncState
-    {
-        get { return _result; }
-    }
-
-    public bool CompletedSynchronously
-    {
-        get { return true; }
-    }
 }

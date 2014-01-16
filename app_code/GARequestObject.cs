@@ -18,10 +18,15 @@ public class GARequestObject
     public String ev = "1";
 
     public DateTime requestTime;
+    public int returnRequestCode = 200;
+    public String requestStatus = "";
+ 
     public String ipAddress = "";
     public String userAgent = "";
+    public String referrer = "";
+    public int requestCount = 0;
 
-    public GARequestObject(String v, String tid, String cid, String t, String ec, String ea, String el, String ev, String ipAddress, String userAgent, DateTime requestTime)
+    public GARequestObject(String v, String tid, String cid, String t, String ec, String ea, String el, String ev, String ipAddress, String userAgent, DateTime requestTime, int returnRequestCode, String requestStatus, String referrer, int requestCount)
     {
         this.v = v;
         this.tid = tid;
@@ -34,5 +39,9 @@ public class GARequestObject
         this.ipAddress = ipAddress;
         this.userAgent = userAgent;
         this.requestTime = requestTime;
+        this.returnRequestCode = returnRequestCode;
+        this.referrer = referrer;
+        this.requestCount = requestCount;
+        this.requestStatus = requestStatus;
     }
 }
